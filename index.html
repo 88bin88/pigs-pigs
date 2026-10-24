@@ -93,7 +93,11 @@ let offlineMode = false;
 
 // ---------------- 缓存读写 ----------------
 function saveCache(){
-  localStorage.setItem("noticeCards", JSON.stringify(cards));
+  try{
+    localStorage.setItem("noticeCards", JSON.stringify(cards));
+  }catch(e){
+    toast("⚠️ 本地存储空间不足，图片过大可能无法保存");
+  }
   if(window.pywebview && pywebview.api && pywebview.api.saveCards){
     pywebview.api.saveCards(cards).catch(()=>{});
   }
@@ -185,14 +189,54 @@ function openEditor(idx){
       <input id="eTitle" value="${esc(c.title)}">
       <label>内容</label>
       <textarea id="eContent">${esc(c.content)}</textarea>
-      <label>图片/GIF 地址（支持网络或本地 file:// 路径）</label>
-      <input id="eMedia" value="${esc(c.media||"")}" placeholder="http://... 或 file://C:/...">
+      <label>图片/GIF（填链接，或点「浏览图片」选本地图）</label>
+      <div style="display:flex;gap:8px">
+        <input id="eMedia" value="${esc(c.media||"")}" placeholder="http://... 或留空">
+        <button class="mini-btn" style="flex-shrink:0" onclick="browseImage()">📁 浏览图片</button>
+      </div>
+      <input type="file" id="filePicker" accept="image/*" style="display:none" onchange="onFilePicked(event)">
     </div>
     <div class="form-btns">
       <button class="btn" onclick="closeModal()">取消</button>
       <button class="btn primary" onclick="saveEdit(${idx===null?"-1":idx})">保存</button>
     </div>`;
   document.getElementById("modal").classList.add("show");
+}
+// 浏览图片：桌面版走系统文件选择框，网页版走上传选图
+function browseImage(){
+  if(window.pywebview && pywebview.api && pywebview.api.pickImage){
+    pywebview.api.pickImage().then(p=>{
+      if(p) document.getElementById("eMedia").value = p;
+    }).catch(()=>{});
+  }else{
+    document.getElementById("filePicker").click();
+  }
+}
+function onFilePicked(ev){
+  const f = ev.target.files[0];
+  if(!f) return;
+  if(f.size > 8*1024*1024){ toast("图片过大，请选 8MB 以内的"); ev.target.value=""; return; }
+  const reader = new FileReader();
+  reader.onload = e=>{
+    const img = new Image();
+    img.onload = ()=>{
+      // 压缩到最长边1200，转JPEG，避免网页版存不下
+      const max = 1200;
+      let w = img.width, h = img.height;
+      if(w > max || h > max){
+        if(w > h){ h = Math.round(h*max/w); w = max; } else { w = Math.round(w*max/h); h = max; }
+      }
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      cv.getContext("2d").drawImage(img, 0, 0, w, h);
+      document.getElementById("eMedia").value = cv.toDataURL("image/jpeg", 0.82);
+      toast("图片已选入");
+    };
+    img.onerror = ()=>{ toast("无法读取该图片"); };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(f);
+  ev.target.value = "";
 }
 function saveEdit(idx){
   const title = document.getElementById("eTitle").value;
