@@ -27,6 +27,47 @@ os.makedirs(CACHE_FOLDER, exist_ok=True)
 
 DEVICE_ID = "NB-" + str(uuid.getnode())[-6:].upper()
 
+# ---------------------------------------------------------------
+# 启动地址：优先加载线上网址（GitHub Pages），连不上回退本地文件
+# ---------------------------------------------------------------
+ONLINE_URL = "https://88bin88.github.io/pigs-pigs/"
+LOCAL_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+MEDIA_PORT = 8124
+
+
+def _pick_start_url():
+    """能访问线上网址就用线上（自动最新版），否则用本地（离线可用）"""
+    if requests is not None:
+        try:
+            r = requests.get(ONLINE_URL, timeout=6)
+            if r.status_code == 200:
+                return ONLINE_URL
+        except Exception:
+            pass
+    return LOCAL_HTML
+
+
+def _start_media_server():
+    """把缓存目录做成 http://127.0.0.1:8124/xxx 静态服务，
+    让 https 线上页面也能加载本地缓存的图片/视频（Chromium 允许 https 加载 localhost）"""
+    import functools
+    import http.server
+
+    class _Handler(http.server.SimpleHTTPRequestHandler):
+        def end_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            super().end_headers()
+
+        def log_message(self, fmt, *args):
+            pass
+
+    handler = functools.partial(_Handler, directory=CACHE_FOLDER)
+    try:
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", MEDIA_PORT), handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    except OSError:
+        pass  # 端口被占用说明服务已在运行
+
 
 class Api:
     """前端 js_api 调用的接口"""
@@ -36,18 +77,17 @@ class Api:
         return DEVICE_ID
 
     def downloadMedia(self, url, filename):
-        """下载图片/GIF/视频到本地缓存，返回本地 file:// 路径"""
+        """下载图片/GIF/视频到本地缓存，返回 http://127.0.0.1:8124/xxx 本地服务地址"""
         if requests is None:
             return url
         try:
             save_path = os.path.join(CACHE_FOLDER, filename)
-            if os.path.exists(save_path):
-                return f"file://{save_path}"
-            resp = requests.get(url, timeout=15)
-            if resp.status_code == 200:
-                with open(save_path, "wb") as f:
-                    f.write(resp.content)
-                return f"file://{save_path}"
+            if not os.path.exists(save_path):
+                resp = requests.get(url, timeout=15)
+                if resp.status_code == 200:
+                    with open(save_path, "wb") as f:
+                        f.write(resp.content)
+            return f"http://127.0.0.1:{MEDIA_PORT}/{filename}"
         except Exception as e:
             print("媒体下载失败:", e)
         return url
@@ -206,10 +246,13 @@ def _check_webview2():
 
 if __name__ == "__main__":
     _check_webview2()
+    _start_media_server()
     api = Api()
+    start_url = _pick_start_url()
+    print("启动加载:", start_url)
     window = webview.create_window(
         "公告看板",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"),
+        start_url,
         js_api=api,
         width=1120,
         height=720,
