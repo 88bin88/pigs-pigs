@@ -426,7 +426,7 @@ function syncMedia(){
     if(c.media && /^https?:\/\//i.test(c.media)){
       const name = "media_" + Math.abs(c.media.split("").reduce((a,ch)=>a+ch.charCodeAt(0),0)) + "_" + c.media.split("/").pop().split("?")[0];
       pywebview.api.downloadMedia(c.media, name).then(local=>{
-        if(local && local.startsWith("file://")) c.media = local;
+        if(local && (local.startsWith("file://") || local.indexOf("127.0.0.1:8124") > -1)) c.media = local;
       }).catch(()=>{});
     }
   });
