@@ -8,6 +8,7 @@ import sys
 import uuid
 import json
 import socket
+import shutil
 import threading
 import ctypes
 
@@ -72,9 +73,35 @@ def _start_media_server():
 class Api:
     """前端 js_api 调用的接口"""
 
+    _window = None
+
+    def setWindow(self, win):
+        self._window = win
+
     def getDeviceCode(self):
         """返回本机设备码"""
         return DEVICE_ID
+
+    def pickImage(self):
+        """前端「浏览图片」按钮：打开系统文件选择框，选中的图片复制到本地缓存，
+        返回 http://127.0.0.1:8124/xxx 供页面显示；取消返回空字符串"""
+        try:
+            if self._window is None:
+                return ""
+            result = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=("图片文件 (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)", "所有文件 (*.*)"),
+            )
+            if not result:
+                return ""
+            src = result[0]
+            ext = os.path.splitext(src)[1].lower() or ".png"
+            filename = "picked_" + uuid.uuid4().hex[:10] + ext
+            shutil.copy(src, os.path.join(CACHE_FOLDER, filename))
+            return f"http://127.0.0.1:{MEDIA_PORT}/{filename}"
+        except Exception as e:
+            print("选择图片失败:", e)
+            return ""
 
     def downloadMedia(self, url, filename):
         """下载图片/GIF/视频到本地缓存，返回 http://127.0.0.1:8124/xxx 本地服务地址"""
@@ -258,6 +285,7 @@ if __name__ == "__main__":
         height=720,
         min_size=(800, 500),
     )
+    api.setWindow(window)
     # 点关闭按钮 -> 隐藏到托盘而不是退出
     window.events.closing += lambda: (window.hide(), False)
     webview.start(_setup_tray)
