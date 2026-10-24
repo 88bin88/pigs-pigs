@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>公告看板</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Microsoft YaHei",system-ui,sans-serif;background:#f0f4f8;overflow:hidden}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:linear-gradient(135deg,#1e3a5f,#2c5f8a);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:10;position:relative}
+header h1{font-size:20px;font-weight:600;letter-spacing:1px}
+.tools{display:flex;gap:8px;align-items:center}
+.btn{padding:8px 14px;border:none;border-radius:6px;cursor:pointer;font-size:14px;background:#fff;color:#1e3a5f;font-weight:500;transition:.2s}
+.btn:hover{transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.btn.primary{background:#4ca3dd;color:#fff}
+.btn.del-btn{background:#fdecea;color:#c0392b}
+.net-badge{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600}
+.net-badge.on{background:#27ae60;color:#fff}
+.net-badge.off{background:#e67e22;color:#fff}
+#board{position:relative;width:100%;height:calc(100vh - 60px);overflow:hidden;background:
+  radial-gradient(circle at 20% 30%, rgba(76,163,221,.06), transparent 40%),
+  radial-gradient(circle at 80% 70%, rgba(30,58,95,.06), transparent 40%)}
+.card{width:270px;background:#fff;border-radius:12px;box-shadow:0 3px 12px rgba(0,0,0,.12);padding:14px;position:absolute;cursor:grab;user-select:none;transition:box-shadow .2s,border .2s;border:2px solid transparent}
+.card:hover{box-shadow:0 6px 20px rgba(0,0,0,.2);border-color:#4ca3dd}
+.card.dragging{cursor:grabbing;opacity:.9;box-shadow:0 10px 30px rgba(0,0,0,.3);z-index:999}
+.card .card-title{font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:6px;word-break:break-word}
+.card .card-content{font-size:14px;color:#444;line-height:1.6;word-break:break-word}
+.card .card-time{font-size:11px;color:#999;margin-top:8px}
+.card-media{width:100%;border-radius:8px;margin:8px 0;display:block}
+.card-actions{display:flex;gap:6px;margin-top:10px;justify-content:flex-end}
+.mini-btn{padding:4px 10px;border:none;border-radius:4px;cursor:pointer;font-size:12px;background:#eef4fa;color:#2c5f8a}
+.mini-btn.del{background:#fdecea;color:#c0392b}
+.modal{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:1000}
+.modal.show{display:flex}
+.modal-box{background:#fff;border-radius:14px;padding:24px;max-width:760px;width:90%;max-height:85vh;overflow:auto;position:relative}
+.modal-box h2{color:#1e3a5f;margin-bottom:12px}
+.modal-box p{color:#333;line-height:1.8;font-size:15px;margin-bottom:10px}
+.modal-close{position:absolute;top:12px;right:12px;width:32px;height:32px;border:none;border-radius:50%;background:#eef1f5;cursor:pointer;font-size:16px;color:#555}
+.modal-close:hover{background:#dde3ea}
+.notify-box{position:fixed;bottom:24px;right:24px;background:#fff;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.25);width:340px;padding:16px;display:none;z-index:1100;border-left:4px solid #4ca3dd}
+.notify-box.show{display:block;animation:slideIn .3s}
+@keyframes slideIn{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+.notify-box h3{color:#1e3a5f;font-size:15px;margin-bottom:6px}
+.notify-box p{color:#555;font-size:13px;line-height:1.6;margin-bottom:10px}
+.notify-box img{max-width:100%;border-radius:8px;margin-bottom:10px}
+.notify-foot{display:flex;gap:8px;justify-content:flex-end}
+.edit-form label{display:block;font-size:13px;color:#666;margin:10px 0 4px}
+.edit-form input,.edit-form textarea{width:100%;padding:8px 10px;border:1px solid #d5dce4;border-radius:6px;font-size:14px;font-family:inherit}
+.edit-form input:focus,.edit-form textarea:focus{outline:none;border-color:#4ca3dd}
+.edit-form textarea{min-height:80px;resize:vertical}
+.form-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.78);color:#fff;padding:10px 22px;border-radius:8px;font-size:14px;z-index:1200;display:none}
+.toast.show{display:block;animation:fadeIn .3s}
+@keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1}}
+</style>
+</head>
+<body>
+<header>
+  <h1>📋 公告看板</h1>
+  <div class="tools">
+    <span class="net-badge on" id="netBadge">● 在线</span>
+    <button class="btn primary" onclick="openEditor(null)">＋ 新建卡片</button>
+    <button class="btn" onclick="openCollabPanel()">协作</button>
+    <button class="btn" onclick="showDevicePanel()">设备码</button>
+    <button class="btn" onclick="toggleFull()">全屏</button>
+  </div>
+</header>
+
+<div id="board"></div>
+
+<!-- 放大/编辑弹窗 -->
+<div class="modal" id="modal">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<!-- 通知弹窗 -->
+<div class="notify-box" id="notify">
+  <h3 id="notifyTitle"></h3>
+  <p id="notifyText"></p>
+  <img id="notifyImg" style="display:none">
+  <div class="notify-foot">
+    <button class="mini-btn" onclick="notifyView()">查看详情</button>
+    <button class="mini-btn del" onclick="closeNotify()">知道了</button>
+  </div>
+</div>
+
+<!-- 提示条 -->
+<div class="toast" id="toast"></div>
+
+<script>
+let cards = [];
+let dragIndex = null;
+let offlineMode = false;
+
+// ---------------- 缓存读写 ----------------
+function saveCache(){
+  localStorage.setItem("noticeCards", JSON.stringify(cards));
+  if(window.pywebview && pywebview.api && pywebview.api.saveCards){
+    pywebview.api.saveCards(cards).catch(()=>{});
+  }
+}
+function loadCache(){
+  let raw = localStorage.getItem("noticeCards");
+  if(!raw && window.pywebview && pywebview.api && pywebview.api.loadCards){
+    // 从本地文件缓存读取
+    return pywebview.api.loadCards().then(data=>{
+      if(data && Array.isArray(data)){ cards = data; render(); }
+    }).catch(()=>{});
+  }
+  if(raw){ try{ cards = JSON.parse(raw); }catch(e){ cards = []; } }
+  render();
+}
+
+// ---------------- 渲染 ----------------
+function render(){
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  cards.forEach((c, idx)=>{
+    if(c.deleted) return;  // 已删除的卡片不渲染（等同步确认后清理）
+    const div = document.createElement("div");
+    div.className = "card";
+    div.style.left = (c.x||60) + "px";
+    div.style.top = (c.y||60+idx*30) + "px";
+    let mediaHtml = "";
+    if(c.media){
+      mediaHtml = `<img class="card-media" src="${c.media}" onerror="this.style.display='none'">`;
+    }
+    div.innerHTML = `
+      <div class="card-title">${esc(c.title||"无标题")}</div>
+      <div class="card-content">${esc(c.content||"")}</div>
+      ${mediaHtml}
+      <div class="card-time">${esc(c.time||"")}</div>
+      <div class="card-actions">
+        <button class="mini-btn" onclick="event.stopPropagation();openEditor(${idx})">编辑</button>
+        <button class="mini-btn del" onclick="event.stopPropagation();delCard(${idx})">删除</button>
+      </div>`;
+    // 双击放大查看
+    div.ondblclick = ()=>openDetail(idx);
+    // 拖拽
+    div.onmousedown = (e)=>startDrag(e, idx, div);
+    board.appendChild(div);
+  });
+}
+function esc(s){
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ---------------- 拖拽 ----------------
+function startDrag(e, idx, div){
+  if(e.target.closest(".mini-btn")) return;
+  e.preventDefault();
+  dragIndex = idx;
+  div.classList.add("dragging");
+  const bx = e.clientX - div.offsetLeft;
+  const by = e.clientY - div.offsetTop;
+  const board = document.getElementById("board");
+  function move(ev){
+    let x = ev.clientX - bx;
+    let y = ev.clientY - by;
+    x = Math.max(0, Math.min(x, board.clientWidth - div.offsetWidth));
+    y = Math.max(0, Math.min(y, board.clientHeight - div.offsetHeight));
+    div.style.left = x+"px";
+    div.style.top = y+"px";
+  }
+  function up(){
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    div.classList.remove("dragging");
+    cards[dragIndex].x = parseInt(div.style.left);
+    cards[dragIndex].y = parseInt(div.style.top);
+    dragIndex = null;
+    saveCache();
+  }
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+}
+
+// ---------------- 新建/编辑 ----------------
+function openEditor(idx){
+  const c = idx===null ? {title:"",content:"",media:"",x:80,y:80+cards.length*20} : cards[idx];
+  document.getElementById("modalBox").innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>${idx===null?"新建公告":"编辑公告"}</h2>
+    <div class="edit-form">
+      <label>标题</label>
+      <input id="eTitle" value="${esc(c.title)}">
+      <label>内容</label>
+      <textarea id="eContent">${esc(c.content)}</textarea>
+      <label>图片/GIF 地址（支持网络或本地 file:// 路径）</label>
+      <input id="eMedia" value="${esc(c.media||"")}" placeholder="http://... 或 file://C:/...">
+    </div>
+    <div class="form-btns">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn primary" onclick="saveEdit(${idx===null?"-1":idx})">保存</button>
+    </div>`;
+  document.getElementById("modal").classList.add("show");
+}
+function saveEdit(idx){
+  const title = document.getElementById("eTitle").value;
+  const content = document.getElementById("eContent").value;
+  const media = document.getElementById("eMedia").value.trim();
+  const ts = Date.now();
+  if(idx === -1){
+    cards.push({id:newId(), title, content, media, x:80, y:80+cards.length*20, time:nowStr(), ts});
+  }else{
+    cards[idx].title = title;
+    cards[idx].content = content;
+    cards[idx].media = media;
+    cards[idx].time = cards[idx].time || nowStr();
+    cards[idx].ts = ts;
+  }
+  saveCache();
+  closeModal();
+  render();
+  // 新卡片触发一次通知
+  if(idx === -1) popNotify(title, content, media, cards.length-1);
+  syncNow();  // 有协作连接则立即同步
+}
+function nowStr(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+// ---------------- 详情放大 ----------------
+let viewIdx = null;
+function openDetail(idx){
+  viewIdx = idx;
+  const c = cards[idx];
+  document.getElementById("modalBox").innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>${esc(c.title)}</h2>
+    <p style="color:#999;font-size:12px">${esc(c.time||"")}</p>
+    <p>${esc(c.content||"")}</p>
+    ${c.media?`<img class="card-media" src="${c.media}" onerror="this.outerHTML='<p style=color:#c0392b>媒体文件加载失败（离线或路径失效）</p>'">`:""}`;
+  document.getElementById("modal").classList.add("show");
+}
+function closeModal(){
+  document.getElementById("modal").classList.remove("show");
+}
+function delCard(idx){
+  if(confirm("确定删除这张公告卡片吗？")){
+    // 标记删除而不是直接移除：这样能同步到其他电脑，服务器也会清除
+    cards[idx].deleted = true;
+    cards[idx].ts = Date.now();
+    saveCache();
+    render();
+    syncNow();
+    // 5秒后本地清理已删除的（防止误删恢复）
+    setTimeout(()=>{ cards = cards.filter(c=>!c.deleted); saveCache(); render(); }, 5000);
+  }
+}
+
+// ---------------- 通知 ----------------
+function popNotify(title, text, media, idx){
+  viewIdx = idx;
+  document.getElementById("notifyTitle").innerText = title || "新公告";
+  document.getElementById("notifyText").innerText = text || "";
+  const img = document.getElementById("notifyImg");
+  if(media){ img.src = media; img.style.display = "block"; }
+  else img.style.display = "none";
+  document.getElementById("notify").classList.add("show");
+}
+function notifyView(){
+  closeNotify();
+  if(viewIdx !== null) openDetail(viewIdx);
+}
+function closeNotify(){
+  document.getElementById("notify").classList.remove("show");
+}
+
+// ---------------- 设备码 ----------------
+function showDevicePanel(){
+  let code = "获取中...";
+  if(window.pywebview && pywebview.api && pywebview.api.getDeviceCode){
+    pywebview.api.getDeviceCode().then(c=>{
+      code = c;
+      const el = document.getElementById("devCode");
+      if(el) el.innerText = c;
+    });
+  }
+  document.getElementById("modalBox").innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>设备信息</h2>
+    <p>本机设备码：<b id="devCode">${code}</b></p>
+    <p style="color:#888;font-size:12px">设备码用于多台电脑之间互相标识，配合后端服务可实现跨设备协作。</p>
+    <div class="form-btns"><button class="btn" onclick="closeModal()">关闭</button></div>`;
+  document.getElementById("modal").classList.add("show");
+}
+
+// ---------------- 全屏 ----------------
+function toggleFull(){
+  if(document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(()=>{});
+}
+
+// ---------------- 多电脑协作 ----------------
+function newId(){
+  return "c" + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+let collab = null;
+let collabTimer = null;
+let collabLastPullIds = new Set();
+try{ collab = JSON.parse(localStorage.getItem("collab")||"null"); }catch(e){ collab = null; }
+if(!collab) collab = {url:"", group:"default", device:"", connected:false};
+
+function saveCollab(){ localStorage.setItem("collab", JSON.stringify(collab)); }
+
+function openCollabPanel(){
+  let ip = "";
+  if(window.pywebview && pywebview.api && pywebview.api.getLocalIP){
+    pywebview.api.getLocalIP().then(v=>{
+      const el = document.getElementById("cIp");
+      if(el) el.innerText = v;
+    }).catch(()=>{});
+  }
+  document.getElementById("modalBox").innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>多电脑协作</h2>
+    <p style="color:#888;font-size:13px">在任意一台电脑运行 server.py 作为协作服务器，其他电脑填「服务器地址 + 相同组号」即可互相同步公告。断网时自动回退本地缓存。</p>
+    <div class="edit-form">
+      <label>服务器地址</label>
+      <input id="cUrl" value="${esc(collab.url)}" placeholder="http://192.168.1.100:8123">
+      <p style="color:#888;font-size:12px;margin-top:4px">本机局域网IP：<b id="cIp">${ip}</b>（跑 server.py 的那台电脑填这个IP+端口）</p>
+      <label>组号（同组才能互相看到）</label>
+      <input id="cGroup" value="${esc(collab.group||"default")}" placeholder="default">
+      <label>本机备注名</label>
+      <input id="cDevice" value="${esc(collab.device||"")}" placeholder="例如：前台电脑">
+    </div>
+    <div class="form-btns">
+      <button class="btn" onclick="closeModal()">取消</button>
+      ${collab.connected
+        ? `<button class="btn del-btn" onclick="disconnectCollab()">断开</button><button class="btn primary" onclick="saveCollabFromPanel();syncNow()">立即同步</button>`
+        : `<button class="btn primary" onclick="saveCollabFromPanel();connectCollab()">连接协作</button>`}
+    </div>`;
+  document.getElementById("modal").classList.add("show");
+}
+function saveCollabFromPanel(){
+  collab.url = document.getElementById("cUrl").value.trim();
+  collab.group = document.getElementById("cGroup").value.trim() || "default";
+  collab.device = document.getElementById("cDevice").value.trim();
+  saveCollab();
+}
+async function connectCollab(){
+  if(!collab.url){ toast("请填写服务器地址"); return; }
+  const ok = await syncNow();
+  if(ok){
+    collab.connected = true;
+    saveCollab();
+    toast("✅ 已连接协作组「"+collab.group+"」");
+    startAutoSync();
+  }else{
+    collab.connected = false;
+    saveCollab();
+    toast("❌ 连接失败，请检查服务器地址和网络");
+  }
+  renderCollabBtn();
+}
+function disconnectCollab(){
+  collab.connected = false;
+  saveCollab();
+  if(collabTimer){ clearInterval(collabTimer); collabTimer = null; }
+  toast("已断开协作");
+  renderCollabBtn();
+}
+function renderCollabBtn(){
+  // 简单在按钮上体现连接状态
+  const btn = document.querySelector('button[onclick="openCollabPanel()"]');
+  if(btn) btn.textContent = collab.connected ? "协作 ●" : "协作";
+}
+async function syncNow(){
+  if(!collab.url) return false;
+  if(!window.pywebview || !pywebview.api || !pywebview.api.syncPush){
+    toast("协作功能需要在桌面版中运行");
+    return false;
+  }
+  // 先推送本地全量（含删除标记），服务器合并后返回最新列表
+  const merged = await pywebview.api.syncPush(collab.url, collab.group, cards).catch(()=>null);
+  if(merged === null || merged === undefined){ setCollabStatus("同步失败"); return false; }
+  cards = merged;
+  saveCache();
+  render();
+  setCollabStatus("已同步 " + new Date().toLocaleTimeString());
+  return true;
+}
+async function pullOnce(){
+  if(!collab.connected || !collab.url) return;
+  if(!navigator.onLine) return;
+  if(!window.pywebview || !pywebview.api || !pywebview.api.syncPull) return;
+  const remote = await pywebview.api.syncPull(collab.url, collab.group).catch(()=>null);
+  if(remote === null || remote === undefined) return;
+  // 记录新增卡片（本地没有的 id）用于通知
+  const localIds = new Set(cards.filter(c=>!c.deleted).map(c=>c.id));
+  const newOnes = remote.filter(c=>c.id && !localIds.has(c.id));
+  cards = mergeLists(cards, remote);
+  saveCache();
+  render();
+  // 有新公告时弹通知
+  newOnes.forEach(c=>{ if(!c.deleted) popNotify("新公告："+c.title, c.content, c.media, cards.findIndex(x=>x.id===c.id)); });
+}
+function mergeLists(local, remote){
+  const map = {};
+  [...local, ...remote].forEach(c=>{
+    if(c && c.id && (!map[c.id] || (c.ts||0) > (map[c.id].ts||0))) map[c.id] = c;
+  });
+  return Object.values(map).filter(c=>!c.deleted);
+}
+function startAutoSync(){
+  if(collabTimer) clearInterval(collabTimer);
+  collabTimer = setInterval(()=>pullOnce(), 10000);  // 每10秒轮询一次
+}
+function setCollabStatus(msg){ toast(msg); }
+
+// ---------------- 网络检测 ----------------
+function setNet(on){
+  const b = document.getElementById("netBadge");
+  b.className = "net-badge " + (on?"on":"off");
+  b.innerText = on?"● 在线":"● 离线(缓存)";
+  offlineMode = !on;
+}
+function checkNet(){
+  setNet(navigator.onLine);
+}
+// 联网时尝试同步素材缓存：把卡片媒体下载到本地
+function syncMedia(){
+  if(!navigator.onLine || !window.pywebview || !pywebview.api) return;
+  cards.forEach(c=>{
+    if(c.media && /^https?:\/\//i.test(c.media)){
+      const name = "media_" + Math.abs(c.media.split("").reduce((a,ch)=>a+ch.charCodeAt(0),0)) + "_" + c.media.split("/").pop().split("?")[0];
+      pywebview.api.downloadMedia(c.media, name).then(local=>{
+        if(local && local.startsWith("file://")) c.media = local;
+      }).catch(()=>{});
+    }
+  });
+}
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.innerText = msg;
+  t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"), 2500);
+}
+
+window.addEventListener("online", ()=>{ setNet(true); toast("网络已恢复，开始同步缓存"); syncMedia(); });
+window.addEventListener("offline", ()=>{ setNet(false); toast("⚠️ 当前离线，加载本地缓存公告"); });
+
+window.onload = function(){
+  checkNet();
+  loadCache();
+  setTimeout(syncMedia, 800);
+  // 恢复协作配置：之前连接过则自动重连
+  setTimeout(()=>{
+    if(collab && collab.connected && collab.url){
+      connectCollab();
+    }else{
+      renderCollabBtn();
+    }
+  }, 1200);
+  // 演示：首次运行没有卡片时放一条示例
+  setTimeout(()=>{
+    if(cards.length === 0){
+      cards.push({id:newId(), title:"欢迎使用公告看板", content:"双击卡片可放大查看，拖拽可调整位置，点右上角【＋新建卡片】发布公告。联网时媒体素材会自动缓存，断网也能正常查看。点【协作】可连接多台电脑同步公告。", x:80, y:80, time:nowStr(), ts:Date.now()});
+      saveCache();
+      render();
+    }
+  }, 500);
+};
+</script>
+</body>
+</html>
